@@ -40,3 +40,20 @@ targets:
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown
+
+  # Tests that need no device. AR face tracking does not exist in the simulator, so the
+  # device-only suites (occlusion sweep, head pose, session teardown) land in Phase 1 and
+  # run against AG. What lives here is anything provable without hardware — starting with
+  # ADR-006's Confirmation, which is pure linear algebra and can therefore hold the
+  # mirror-mode seam from the first commit rather than waiting for an iPad.
+  salon-arTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: salon-ar
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.abishai.salonar.tests
+        GENERATE_INFOPLIST_FILE: YES

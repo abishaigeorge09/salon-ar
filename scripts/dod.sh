@@ -142,35 +142,71 @@ device_attached() {
     | grep -q "^${DEVICE} "
 }
 
-# Does a test target actually exist?
-have_tests() {
+have_target() {
   [ -n "$XCPROJ" ] && xcodebuild -list -project "$XCPROJ" 2>/dev/null \
-    | sed -n '/Targets:/,/^$/p' | grep -qi 'test'
+    | sed -n '/Targets:/,/^$/p' | grep -qi "$1"
 }
+
+# Two suites, two homes, and the split is a statement about what each can prove.
+#
+#   salon-arTests        pure logic, no ARKit. Runs on the SIMULATOR, because a device
+#                        adds nothing to linear algebra and requiring one made the DoD red
+#                        whenever the phone was locked.
+#   salon-arDeviceTests  anything touching ARKit. Device ONLY. Face tracking does not exist
+#                        in the simulator, so a green simulator run there would be worse
+#                        than no run, and a missing device is a FAILURE rather than a skip.
+#
+# The loophole this must not open: an ARKit test smuggled into the unit suite would then
+# run on the simulator and pass vacuously. Guarded below.
+
+# The anti-loophole guard runs ALWAYS, including under --quick. It is a static grep that
+# costs nothing, and an earlier version buried it inside the tests block where --quick
+# skipped it — so the guard I had just written to prevent vacuous passes was itself being
+# skipped in the fast path everyone actually runs.
+# NOTE the plain grep rather than git grep: git grep searches the INDEX, so it silently
+# ignores untracked files — which is precisely the code somebody is about to add and has
+# not committed yet. A guard that only sees committed code cannot stop anything.
+check_no_ar_in_unit_suite() {
+  [ -d Tests ] || return 0
+  if grep -rlE '^[[:space:]]*import[[:space:]]+(ARKit|RealityKit)' Tests --include='*.swift' >/dev/null 2>&1; then
+    red "  ARKit or RealityKit imported in Tests/, which runs on the SIMULATOR where face"
+    red "  tracking does not exist. It would pass vacuously. Move it to DeviceTests/."
+    return 1
+  fi
+  return 0
+}
+run "no AR tests in the simulator suite" check_no_ar_in_unit_suite
 
 if [ -z "$XCPROJ" ]; then
   skip "tests" "no Xcode project yet"
 elif [ "$QUICK" = 1 ]; then
   skip "tests" "--quick"
-elif ! have_tests; then
-  # Honest skip, not a failure. Pre-Gate-2 there is deliberately no product code, so
-  # there is nothing to test. This becomes a FAILURE the moment a test target exists,
-  # or the moment any AR source lands, because from then on tests genuinely should run.
-  if git grep -qP '^\s*import\s+(ARKit|RealityKit)' -- ':(glob)**/*.swift' 2>/dev/null; then
-    FAILED+=("tests"); red "FAIL  tests (AR sources exist but there is no test target)"
-  else
-    skip "tests" "no test target and no AR sources yet (pre-Gate-2)"
-  fi
-elif ! device_attached; then
-  # The device is REQUIRED once tests exist. A check that should apply but cannot run is
-  # a failure, not a skip: AR face tracking does not exist in the simulator, so there is
-  # no fallback that would mean anything.
-  FAILED+=("tests"); red "FAIL  tests (device '$DEVICE' not attached; AR tests cannot run in the simulator)"
 else
-  run "tests" xcodebuild test \
-    -scheme "$(basename "${XCPROJ%.*}")" \
-    -destination "platform=iOS,name=$DEVICE" \
-    -quiet
+  if have_target 'salon-arTests'; then
+    run "unit tests (simulator)" xcodebuild test \
+      -project "$XCPROJ" -scheme "$(basename "${XCPROJ%.*}")" \
+      -only-testing:salon-arTests \
+      -destination "platform=iOS Simulator,name=iPhone 17" -quiet
+  else
+    skip "unit tests" "no salon-arTests target"
+  fi
+
+  if have_target 'DeviceTests'; then
+    if device_attached; then
+      run "device tests (AG)" xcodebuild test \
+        -project "$XCPROJ" -scheme "$(basename "${XCPROJ%.*}")" \
+        -only-testing:salon-arDeviceTests \
+        -destination "platform=iOS,name=$DEVICE" -quiet
+    else
+      FAILED+=("device tests"); red "FAIL  device tests (device '$DEVICE' not attached; AR cannot be tested in the simulator)"
+    fi
+  else
+    # Honest: no AR test target exists yet. Becomes a failure the moment AR ships.
+    if git grep -qP '^\s*import\s+(ARKit|RealityKit)' -- ':(glob)Sources/**/*.swift' 2>/dev/null; then
+      ylw "  NOTE: AR sources exist with no salon-arDeviceTests target. Phase 1 must add one."
+    fi
+    skip "device tests" "no salon-arDeviceTests target yet (Phase 1)"
+  fi
 fi
 
 # ------------------------------------------------------------ format / lint
