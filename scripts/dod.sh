@@ -78,18 +78,35 @@ check_confirmations() {
 run "confirmations registry" check_confirmations
 
 # ------------------------------------------------------------ swift build
+#
+# .xcodeproj is a generated artifact (XcodeGen, from the committed project.yml) and is
+# gitignored, so its absence is normal rather than a fault. An earlier version treated
+# "Swift sources but no .xcodeproj" as a failure, which turned every Linux CI run red for
+# a condition that is correct by design.
+
 XCPROJ=$(ls -d ./*.xcodeproj ./*.xcworkspace 2>/dev/null | head -1)
 
-if [ -z "$XCPROJ" ]; then
-  # Not a skip. Pre-Gate-2 there is deliberately no product code, and saying so is
-  # accurate. It becomes a failure the moment any .swift file exists without a project.
-  if find . -name '*.swift' -not -path './.git/*' | grep -q .; then
-    FAILED+=("build"); red "FAIL  build (swift sources exist with no Xcode project)"
-  else
-    skip "build" "no Xcode project yet, and no Swift sources exist either"
-  fi
-elif [ "$QUICK" = 1 ]; then
+# Generate it if we can. On a machine with xcodegen this makes the check real; on Linux
+# it stays absent and we say so instead of failing.
+if [ -z "$XCPROJ" ] && [ -f project.yml ] && command -v xcodegen >/dev/null 2>&1; then
+  xcodegen generate --quiet 2>/dev/null || true
+  XCPROJ=$(ls -d ./*.xcodeproj 2>/dev/null | head -1)
+fi
+
+if [ "$QUICK" = 1 ]; then
   skip "build" "--quick"
+elif ! command -v xcodebuild >/dev/null 2>&1; then
+  # Honest. Recorded in docs/DEBT.md as D-008: nothing Apple-toolchain can be verified on
+  # a Linux runner, and pretending otherwise is how a vacuous green happens.
+  skip "build" "no xcodebuild on this platform (see docs/DEBT.md D-008)"
+elif [ -z "$XCPROJ" ]; then
+  if [ -f project.yml ]; then
+    FAILED+=("build"); red "FAIL  build (project.yml exists but xcodegen could not generate a project)"
+  elif git ls-files -- ':(glob)**/*.swift' | grep -q .; then
+    FAILED+=("build"); red "FAIL  build (swift sources exist with no project and no project.yml)"
+  else
+    skip "build" "no Xcode project and no Swift sources (pre-Gate-2)"
+  fi
 else
   run "build" xcodebuild build \
     -scheme "$(basename "${XCPROJ%.*}")" \
@@ -99,16 +116,44 @@ fi
 
 # ------------------------------------------------------------ tests
 #
-# Device only. AR face tracking does not exist in the simulator, so a green
-# simulator run on this product is worse than no run: it is misleading.
+# Device only. AR face tracking does not exist in the simulator, so a green simulator run
+# on this product is worse than no run: it is misleading.
+
+# Device presence, correctly. An earlier version wrote
+#     xctrace list devices | grep -qv Simulator | grep -q "$DEVICE"
+# which is always false: grep -q exits after the first line and prints nothing, so the
+# second grep reads empty input forever. It reported "device not attached" even with the
+# device plugged in — a permanent false positive, which is the failure mode that teaches
+# everyone to ignore the script.
+device_attached() {
+  xcrun xctrace list devices 2>/dev/null \
+    | sed -n '/^== Devices ==/,/^== /p' \
+    | grep -q "^${DEVICE} "
+}
+
+# Does a test target actually exist?
+have_tests() {
+  [ -n "$XCPROJ" ] && xcodebuild -list -project "$XCPROJ" 2>/dev/null \
+    | sed -n '/Targets:/,/^$/p' | grep -qi 'test'
+}
 
 if [ -z "$XCPROJ" ]; then
   skip "tests" "no Xcode project yet"
 elif [ "$QUICK" = 1 ]; then
   skip "tests" "--quick"
-elif ! xcrun xctrace list devices 2>/dev/null | grep -qv Simulator | grep -q "$DEVICE"; then
-  # The device is REQUIRED, so its absence is red. This is the rule about a check
-  # that should apply but cannot run.
+elif ! have_tests; then
+  # Honest skip, not a failure. Pre-Gate-2 there is deliberately no product code, so
+  # there is nothing to test. This becomes a FAILURE the moment a test target exists,
+  # or the moment any AR source lands, because from then on tests genuinely should run.
+  if git grep -qP '^\s*import\s+(ARKit|RealityKit)' -- ':(glob)**/*.swift' 2>/dev/null; then
+    FAILED+=("tests"); red "FAIL  tests (AR sources exist but there is no test target)"
+  else
+    skip "tests" "no test target and no AR sources yet (pre-Gate-2)"
+  fi
+elif ! device_attached; then
+  # The device is REQUIRED once tests exist. A check that should apply but cannot run is
+  # a failure, not a skip: AR face tracking does not exist in the simulator, so there is
+  # no fallback that would mean anything.
   FAILED+=("tests"); red "FAIL  tests (device '$DEVICE' not attached; AR tests cannot run in the simulator)"
 else
   run "tests" xcodebuild test \

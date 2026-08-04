@@ -37,9 +37,9 @@ if ! have_swift; then
   # that gets quoted later as evidence.
   pending "no-networking-source" "no Swift sources yet; trigger: first .swift file"
 else
-  hits=$(gg '^\s*(import|@_implementationOnly import)\s+(Foundation\.URL|Network|CFNetwork|Alamofire|Starscream)\b' \
+  hits=$(gg_code '^\s*(import|@_implementationOnly import)\s+(Foundation\.URL|Network|CFNetwork|Alamofire|Starscream)\b' \
            -- "${SRC_GLOB[@]}" 2>/dev/null || true)
-  urlhits=$(gg '\b(URLSession|URLRequest|NWConnection|CFSocket|NSURLConnection)\b' \
+  urlhits=$(gg_code '\b(URLSession|URLRequest|NWConnection|CFSocket|NSURLConnection)\b' \
            -- "${SRC_GLOB[@]}" 2>/dev/null || true)
   if [ -n "$hits$urlhits" ]; then
     bad "no-networking-source" "$hits$urlhits"
@@ -74,7 +74,7 @@ else
   # every write path is flagged and must carry an explicit ADR-005 exemption comment.
   # An earlier version matched only type names (ARFaceGeometry), which let a variable
   # called faceGeometry through — and a variable is what anyone would actually write.
-  hits=$(gg -i '\.write\s*\(\s*to:|\.writeToFile|FileManager\.default\.(createFile|copyItem|moveItem)|CGImageDestination|UIImageWriteToSavedPhotosAlbum' \
+  hits=$(gg_code '\.write\s*\(\s*to:|\.writeToFile|FileManager\.default\.(createFile|copyItem|moveItem)|CGImageDestination|UIImageWriteToSavedPhotosAlbum' \
            -- "${SRC_GLOB[@]}" 2>/dev/null | grep -v 'ADR-005-exempt' || true)
   if [ -n "$hits" ]; then bad "no-image-persistence" "$hits"; else ok "no-image-persistence"; fi
 fi
@@ -117,7 +117,7 @@ fi
 if ! have_swift; then
   pending "no-session-retention" "no Swift sources yet"
 else
-  hits=$(gg '\b(UserDefaults|NSKeyedArchiver|CoreData|SwiftData|Keychain)\b' -- "${SRC_GLOB[@]}" 2>/dev/null || true)
+  hits=$(gg_code '\b(UserDefaults|NSKeyedArchiver|CoreData|SwiftData|Keychain)\b' -- "${SRC_GLOB[@]}" 2>/dev/null || true)
   if [ -n "$hits" ]; then
     bad "no-session-retention" "persistence APIs in a project that must retain nothing. Each needs an ADR-005 exemption comment:
 $hits"

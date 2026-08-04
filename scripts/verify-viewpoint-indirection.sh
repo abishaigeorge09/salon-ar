@@ -14,7 +14,7 @@ if ! git ls-files -- ':(glob)**/*.swift' 2>/dev/null | grep -q .; then
   printf 'no Swift sources yet\n'; exit 0
 fi
 
-hits=$(gg '\b(session|arView)\.currentFrame\.camera\.transform|\bframe\.camera\.transform\b' \
+hits=$(gg_code '\b(session|arView)\.currentFrame\.camera\.transform|\bframe\.camera\.transform\b' \
        -- ':(glob)**/*.swift' ':(exclude)**/ViewpointProvider.swift' 2>/dev/null || true)
 
 if [ -n "$hits" ]; then
