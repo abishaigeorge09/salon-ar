@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-main-commit.sh",
+            "timeout": 15,
+            "statusMessage": "Checking branch protection"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/dod-gate.sh",
+            "timeout": 300,
+            "statusMessage": "Definition of Done"
+          }
+        ]
+      }
+    ]
+  }
+}

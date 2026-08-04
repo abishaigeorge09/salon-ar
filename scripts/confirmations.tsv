@@ -1,0 +1,44 @@
+# Registry of every ADR Confirmation. Tab-separated.
+#
+# This file is the reason an architecture decision cannot quietly stop being enforced.
+# Every ADR in docs/adr/ carries a Confirmation naming a runnable command. Each one is
+# registered here exactly once, in one of two states:
+#
+#   ACTIVE   the check runs today, in dod.sh or security-invariants.sh
+#   PENDING  the check cannot run yet, with a REASON and a TRIGGER that closes it
+#
+# There is no third state. A Confirmation that is neither ACTIVE nor PENDING is a
+# boundary nobody is holding, and dod.sh fails when it finds one, because a check that
+# should apply but cannot run is a failure and not a skip.
+#
+# PENDING is never silent. dod.sh prints every pending row on every run, so the list
+# is uncomfortable to look at and gets shorter.
+#
+# ADR	ID	STATE	CHECK	REASON / TRIGGER
+ADR-001	identity-preservation	PENDING	scripts/verify-identity-preservation.sh	No freeze-mode implementation. Trigger: first freeze-mode commit.
+ADR-001	segmentation-iou	PENDING	scripts/verify-segmentation-iou.sh	No segmentation model integrated. Trigger: model lands in the tree.
+ADR-001	live-frame-budget	PENDING	ARTests/LiveFrameBudgetTests	No render path. Device-only. Trigger: first live render on AG.
+ADR-001	honesty-copy	ACTIVE	scripts/lint-honesty.sh	Runs from day one against the token and string layer.
+ADR-002	device-matrix-parity	PENDING	scripts/verify-device-matrix.sh	No runtime capability constant yet. Trigger: capability gate lands.
+ADR-002	unsupported-not-crash	PENDING	ARTests/UnsupportedDeviceTests	Trigger: capability gate lands.
+ADR-002	head-pose-is-6dof	PENDING	ARTests/HeadPoseTests	Device-only, needs AG. Trigger: ARKit session lands.
+ADR-002	calibration-latency	PENDING	ARTests/CalibrationLatencyTests	Device-only. Trigger: ARKit session lands.
+ADR-003	occlusion-sweep	PENDING	ARTests/OcclusionSweepTests	Device-only. Trigger: head proxy lands.
+ADR-003	render-baselines	PENDING	scripts/verify-render-baselines.sh	No baselines to diff against. Trigger: first approved render.
+ADR-003	head-proxy-fit	PENDING	ARTests/HeadProxyFitTests	Trigger: head proxy lands.
+ADR-003	camera-match-degradation	PENDING	scripts/verify-camera-match.sh	Trigger: realism shader lands.
+ADR-004	styles-build-from-config	PENDING	scripts/build-styles.sh	No asset pipeline. Trigger: first style config row.
+ADR-004	hundredth-style-is-free	PENDING	scripts/verify-style-parity.sh	Trigger: first style config row.
+ADR-004	no-orphan-assets	ACTIVE	scripts/verify-no-orphan-assets.sh	Runs from day one. Catches a hand-placed asset the moment it appears.
+ADR-004	style-alignment	PENDING	ARTests/StyleAlignmentTests	Trigger: head proxy plus first style.
+ADR-005	no-networking-source	ACTIVE	scripts/security-invariants.sh	Source-level. Runs from day one.
+ADR-005	no-networking-binary	PENDING	scripts/security-invariants.sh	nm over the built AR module. Trigger: first successful device build.
+ADR-005	no-image-persistence	ACTIVE	scripts/security-invariants.sh	Source-level. Runs from day one.
+ADR-005	session-teardown	PENDING	ARTests/SessionTeardownTests	Trigger: session object lands.
+ADR-005	idle-reset	PENDING	ARTests/IdleResetTests	Trigger: session object lands.
+ADR-005	no-analytics-sdks	ACTIVE	scripts/security-invariants.sh	Dependency graph. Runs from day one, including on an empty graph.
+ADR-005	minimal-entitlements	ACTIVE	scripts/security-invariants.sh	Info.plist. Active once a plist exists, and its absence is reported.
+ADR-006	off-axis-viewpoint	PENDING	ARTests/ViewpointProviderTests	Trigger: ViewpointProvider lands.
+ADR-006	no-direct-camera-reads	ACTIVE	scripts/verify-viewpoint-indirection.sh	Runs from day one. Catches the first direct read, which is the point.
+BRIEF	no-judgement-vocabulary	ACTIVE	scripts/lint-nojudge.sh	R-NOJUDGE. Runs from day one against all user-facing copy.
+BRIEF	checks-actually-bite	ACTIVE	scripts/verify-checks-bite.sh	Meta-check. Proves every ACTIVE check fails when violated and passes when clean.

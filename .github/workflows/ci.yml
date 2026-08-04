@@ -1,0 +1,26 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  invariants:
+    # Runs on Linux because none of these checks need Xcode: they are source-level
+    # greps, the registry integrity check, and the meta-check that proves each one
+    # bites. The device-only AR tests deliberately cannot run in CI at all, which is
+    # recorded in docs/DEBT.md rather than faked with a simulator run.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Confirmations registry, product invariants, security invariants
+        run: ./scripts/dod.sh --quick
+      - name: Prove every active check still bites
+        run: ./scripts/verify-checks-bite.sh
+
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          if ls ./*.xcodeproj >/dev/null 2>&1; then ./scripts/dod.sh; else
+            echo "No Xcode project yet (pre-Gate-2). Nothing to build."; fi
