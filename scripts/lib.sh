@@ -67,3 +67,27 @@ gg_code() {
   local pat="$1"; shift
   gg "^(?!\\s*(///|//|\\*|/\\*)).*(?:${pat})" "$@"
 }
+
+# Assert a postcondition after any step that GENERATES, COPIES or BUILDS something.
+#
+# Four of this repo's six worst bugs were "the tool succeeded at something, just not the
+# thing I meant, and said nothing":
+#   XcodeGen generated a plist over the top of mine   → shipped with no camera key
+#   cp -R nested instead of replacing                 → tested stale scripts
+#   CI found no .xcodeproj and printed a cheerful line → passed having built nothing
+#   a grep matched nothing                            → read as "no violation"
+#
+# The fix is never "be careful". It is: state what the step was supposed to produce, and
+# check. Exit 0 is not evidence that the right thing happened.
+#
+#   produced <label> <test-expression...>
+#     produced "plist has the camera key" grep -q NSCameraUsageDescription Sources/App/Info.plist
+produced() {
+  local label="$1"; shift
+  if "$@" >/dev/null 2>&1; then
+    return 0
+  fi
+  printf '\033[31mPOSTCONDITION FAILED: %s\033[0m\n' "$label"
+  printf '  the step reported success but did not produce what it was supposed to.\n'
+  return 1
+}

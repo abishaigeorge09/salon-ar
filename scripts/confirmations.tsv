@@ -42,3 +42,4 @@ ADR-006	off-axis-viewpoint	PENDING	ARTests/ViewpointProviderTests	Trigger: Viewp
 ADR-006	no-direct-camera-reads	ACTIVE	scripts/verify-viewpoint-indirection.sh	Runs from day one. Catches the first direct read, which is the point.
 BRIEF	no-judgement-vocabulary	ACTIVE	scripts/lint-nojudge.sh	R-NOJUDGE. Runs from day one against all user-facing copy.
 BRIEF	checks-actually-bite	ACTIVE	scripts/verify-checks-bite.sh	Meta-check. Proves every ACTIVE check fails when violated and passes when clean.
+BUILD	generation-postconditions	ACTIVE	scripts/dod.sh	Asserts the generated plist declares camera and launch screen. XcodeGen exits 0 while producing neither.
