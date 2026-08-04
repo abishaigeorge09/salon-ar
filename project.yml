@@ -6,7 +6,7 @@ options:
   createIntermediateGroups: true
 settings:
   base:
-    DEVELOPMENT_TEAM: 63V2MGYZ2K
+    DEVELOPMENT_TEAM: LC743Z7W4J
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.1.0"
