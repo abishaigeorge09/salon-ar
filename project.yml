@@ -1,0 +1,42 @@
+name: salon-ar
+options:
+  bundleIdPrefix: com.abishai
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: 63V2MGYZ2K
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  salon-ar:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.abishai.salonar
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_PREVIEWS: YES
+    # XcodeGen GENERATES the plist from this block. An earlier version hand-wrote a plist
+    # at info.path and also set INFOPLIST_FILE; XcodeGen silently overwrote it, and the
+    # app shipped with no camera string and no launch screen. The missing launch screen
+    # is what made the entire UI render scaled and clipped off the left edge.
+    #
+    # One source of truth, and it is here. Do not hand-write Sources/App/Info.plist.
+    info:
+      path: Sources/App/Info.plist
+      properties:
+        # ADR-005: camera only. No Photos, no location, no microphone. The security
+        # invariants read the BUILT plist and fail if anything else appears.
+        NSCameraUsageDescription: "Used to show hairstyles on you, live. Nothing is recorded, saved, or sent anywhere, and the session is erased when it ends."
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown

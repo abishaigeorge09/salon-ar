@@ -32,7 +32,7 @@ ADR-004	hundredth-style-is-free	PENDING	scripts/verify-style-parity.sh	Trigger: 
 ADR-004	no-orphan-assets	ACTIVE	scripts/verify-no-orphan-assets.sh	Runs from day one. Catches a hand-placed asset the moment it appears.
 ADR-004	style-alignment	PENDING	ARTests/StyleAlignmentTests	Trigger: head proxy plus first style.
 ADR-005	no-networking-source	ACTIVE	scripts/security-invariants.sh	Source-level. Runs from day one.
-ADR-005	no-networking-binary	PENDING	scripts/security-invariants.sh	nm over the built AR module. Trigger: first successful device build.
+ADR-005	no-networking-binary	ACTIVE	scripts/security-invariants.sh	nm over the built binary. Verified non-vacuous: 31 symbols read, 0 networking.
 ADR-005	no-image-persistence	ACTIVE	scripts/security-invariants.sh	Source-level. Runs from day one.
 ADR-005	session-teardown	PENDING	ARTests/SessionTeardownTests	Trigger: session object lands.
 ADR-005	idle-reset	PENDING	ARTests/IdleResetTests	Trigger: session object lands.
