@@ -64,17 +64,26 @@ bite() {
     grn "  bites         $n"; PASS=$((PASS+1))
   fi
   git reset -q >/dev/null 2>&1
-  rm -rf Sources assets Build Info.plist Package.swift 2>/dev/null
+  rm -rf Sources/Probe assets Build Info.plist Package.swift 2>/dev/null
+  git checkout -q HEAD -- Sources 2>/dev/null || true
 }
 
 printf '\n--- each ACTIVE check must FAIL when its violation is present ---\n'
 
 bite "R-NOJUDGE: judgement vocabulary" \
   'echo "let s = \"suits your face shape\"" > Sources/A.swift' scripts/lint-nojudge.sh no-judgement-vocabulary
-bite "R-HONEST: live AR view without disclosure" \
-  'printf "import RealityKit\nstruct V { var v: ARView? }\n" > Sources/A.swift' scripts/lint-honesty.sh honesty-copy
-bite "ADR-006: direct AR camera transform read" \
-  'echo "let t = session.currentFrame.camera.transform" > Sources/A.swift' scripts/verify-viewpoint-indirection.sh no-direct-camera-reads
+bite "R-HONEST: a live AR view with the disclosure REMOVED" \
+  'perl -pi -e "s/This adds length and volume[^\"]*//" Sources/Design/Components.swift' \
+  scripts/lint-honesty.sh honesty-copy
+bite "ADR-006: unmarked camera transform read" \
+  'mkdir -p Sources/Probe && echo "let t = frame.camera.transform" > Sources/Probe/A.swift' \
+  scripts/verify-viewpoint-indirection.sh no-direct-camera-reads
+
+# The subtler failure: not an unmarked read, but a SECOND marked seam. That is how the
+# decision actually erodes — somebody needs the transform, sees the marker, copies it.
+bite "ADR-006: a second marked seam" \
+  'mkdir -p Sources/Probe && echo "let t = frame.camera.transform  // ADR-006-seam" > Sources/Probe/A.swift' \
+  scripts/verify-viewpoint-indirection.sh no-direct-camera-reads
 bite "ADR-004: orphan hand-placed style asset" \
   'touch assets/bob_handmade.usdz' scripts/verify-no-orphan-assets.sh no-orphan-assets
 bite "ADR-005: URLSession in source" \

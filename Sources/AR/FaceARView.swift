@@ -67,9 +67,11 @@ struct FaceARView: UIViewRepresentable {
         }
 
         func session(_ session: ARSession, didUpdate frame: ARFrame) {
-            // ADR-006: the render viewpoint comes from the provider, never read directly
-            // off the frame. Today this is the identity case and costs a matrix copy.
-            _ = viewpoint.viewpoint(forCamera: frame.camera.transform)
+            // ADR-006-seam. The ONE place in the codebase that reads the camera transform,
+            // and it exists only to hand it to the provider. scripts/verify-viewpoint-
+            // indirection.sh fails the build if a second one appears, because two seams is
+            // how the mirror port turns back into a rewrite.
+            _ = viewpoint.viewpoint(forCamera: frame.camera.transform)  // ADR-006-seam
         }
 
         func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
