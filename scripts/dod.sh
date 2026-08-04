@@ -102,13 +102,41 @@ fi
 # Device only. AR face tracking does not exist in the simulator, so a green
 # simulator run on this product is worse than no run: it is misleading.
 
+# Device presence, correctly. An earlier version wrote
+#     xctrace list devices | grep -qv Simulator | grep -q "$DEVICE"
+# which is always false: grep -q exits after the first line and prints nothing, so the
+# second grep reads empty input forever. It reported "device not attached" even with the
+# device plugged in — a permanent false positive, which is the failure mode that teaches
+# everyone to ignore the script.
+device_attached() {
+  xcrun xctrace list devices 2>/dev/null \
+    | sed -n '/^== Devices ==/,/^== /p' \
+    | grep -q "^${DEVICE} "
+}
+
+# Does a test target actually exist?
+have_tests() {
+  [ -n "$XCPROJ" ] && xcodebuild -list -project "$XCPROJ" 2>/dev/null \
+    | sed -n '/Targets:/,/^$/p' | grep -qi 'test'
+}
+
 if [ -z "$XCPROJ" ]; then
   skip "tests" "no Xcode project yet"
 elif [ "$QUICK" = 1 ]; then
   skip "tests" "--quick"
-elif ! xcrun xctrace list devices 2>/dev/null | grep -qv Simulator | grep -q "$DEVICE"; then
-  # The device is REQUIRED, so its absence is red. This is the rule about a check
-  # that should apply but cannot run.
+elif ! have_tests; then
+  # Honest skip, not a failure. Pre-Gate-2 there is deliberately no product code, so
+  # there is nothing to test. This becomes a FAILURE the moment a test target exists,
+  # or the moment any AR source lands, because from then on tests genuinely should run.
+  if git grep -qP '^\s*import\s+(ARKit|RealityKit)' -- ':(glob)**/*.swift' 2>/dev/null; then
+    FAILED+=("tests"); red "FAIL  tests (AR sources exist but there is no test target)"
+  else
+    skip "tests" "no test target and no AR sources yet (pre-Gate-2)"
+  fi
+elif ! device_attached; then
+  # The device is REQUIRED once tests exist. A check that should apply but cannot run is
+  # a failure, not a skip: AR face tracking does not exist in the simulator, so there is
+  # no fallback that would mean anything.
   FAILED+=("tests"); red "FAIL  tests (device '$DEVICE' not attached; AR tests cannot run in the simulator)"
 else
   run "tests" xcodebuild test \

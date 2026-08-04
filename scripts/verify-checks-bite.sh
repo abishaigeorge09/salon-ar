@@ -29,7 +29,13 @@ trap cleanup EXIT
 # the WORKING TREE scripts in, because those are the ones under test. Without this the
 # scripts are simply absent, every invocation exits non-zero, and the harness reads that
 # as "bites" — proving nothing while looking green.
-cp -R "$ROOT/scripts" "$WT/scripts"
+# NOTE the trailing "/." — `cp -R src dst` NESTS as dst/src when dst already exists, and
+# scripts/ IS committed, so the naive form silently ran the STALE committed scripts while
+# reporting on them as if they were the working tree. Second time this harness has proved
+# the wrong thing while looking green.
+mkdir -p "$WT/scripts"
+cp -R "$ROOT/scripts/." "$WT/scripts/"
+[ -d "$WT/scripts/scripts" ] && { printf 'scripts/ nested; copy is wrong\n'; exit 1; }
 cd "$WT"
 PASS=0; FAIL=0
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
@@ -72,6 +78,33 @@ bite "ADR-005: UserDefaults retention" \
   'echo "UserDefaults.standard.set(m, forKey: \"k\")" > Sources/A.swift' scripts/security-invariants.sh
 bite "ADR-005: face geometry written to disk" \
   'echo "try faceGeometry.write(to: url)" > Sources/A.swift' scripts/security-invariants.sh
+
+printf '\n--- and a COMMENT mentioning a forbidden thing must NOT fire (false positives\n'
+printf '    teach everyone to ignore the script, which is worse than a missing check) ---\n'
+
+# nocomment <description> <setup> <script>
+nocomment() {
+  local n="$1" setup="$2" s="$3"
+  mkdir -p Sources
+  eval "$setup"
+  git add -A -f >/dev/null 2>&1
+  local out
+  if out=$(./"$s" 2>&1); then
+    grn "  ignores prose  $n"; PASS=$((PASS+1))
+  else
+    red "  FALSE POSITIVE  $n fires on a comment  ($s)"
+    printf '%s\n' "$out" | grep -E '^.?.?.?.?.?FAIL' | sed 's/^/        /'
+    FAIL=$((FAIL+1))
+  fi
+  git reset -q >/dev/null 2>&1; rm -rf Sources 2>/dev/null
+}
+
+nocomment "comment saying we never use URLSession" \
+  'printf "// We deliberately never use URLSession here.\n" > Sources/A.swift' scripts/security-invariants.sh
+nocomment "doc comment mentioning UserDefaults" \
+  'printf "/// Nothing is stored in UserDefaults, by ADR-005.\n" > Sources/A.swift' scripts/security-invariants.sh
+nocomment "comment describing the forbidden camera read" \
+  'printf "// Never read session.currentFrame.camera.transform directly.\n" > Sources/A.swift' scripts/verify-viewpoint-indirection.sh
 
 printf '\n--- and each must PASS on a clean tree (a check that cries wolf gets ignored) ---\n'
 for s in lint-nojudge lint-honesty verify-viewpoint-indirection verify-no-orphan-assets security-invariants; do

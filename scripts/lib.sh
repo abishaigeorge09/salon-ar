@@ -52,3 +52,18 @@ gg() { git grep -nP "$@"; }
 # character.
 #   word_re URLSession  ->  (^|[^A-Za-z0-9_])URLSession($|[^A-Za-z0-9_])
 word_re() { printf '(^|[^A-Za-z0-9_])%s($|[^A-Za-z0-9_])' "$1"; }
+
+# Grep CODE, not prose.
+#
+# Every source check in this repo originally matched comment lines. The DoD reported
+# "AR sources exist" because a comment said "there is deliberately no ARKit session", and
+# the ADR-005 networking check would have failed on a comment saying "we never use
+# URLSession". False positives are more expensive than missing checks, because they teach
+# everyone to ignore the script — so the checks must read code.
+#
+# Skips whole-line comments (// /// * /*). Trailing comments on a code line still match,
+# which is the safe direction: it over-reports on a line that also contains real code.
+gg_code() {
+  local pat="$1"; shift
+  gg "^(?!\\s*(///|//|\\*|/\\*)).*(?:${pat})" "$@"
+}
