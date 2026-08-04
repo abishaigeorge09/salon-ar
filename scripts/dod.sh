@@ -93,6 +93,17 @@ if [ -z "$XCPROJ" ] && [ -f project.yml ] && command -v xcodegen >/dev/null 2>&1
   XCPROJ=$(ls -d ./*.xcodeproj 2>/dev/null | head -1)
 fi
 
+# Postconditions on generation. XcodeGen exits 0 while producing a plist missing the one
+# key ADR-005 depends on, which is how an app shipped with no camera usage string.
+if [ -n "$XCPROJ" ] && [ -f Sources/App/Info.plist ]; then
+  . ./scripts/lib.sh
+  gen_ok=0
+  produced "generated plist declares the camera" grep -q NSCameraUsageDescription Sources/App/Info.plist || gen_ok=1
+  produced "generated plist declares a launch screen" grep -q UILaunchScreen Sources/App/Info.plist || gen_ok=1
+  if [ "$gen_ok" = 0 ]; then PASSED+=("project generation"); grn "PASS  project generation"
+  else FAILED+=("project generation"); red "FAIL  project generation"; fi
+fi
+
 if [ "$QUICK" = 1 ]; then
   skip "build" "--quick"
 elif ! command -v xcodebuild >/dev/null 2>&1; then

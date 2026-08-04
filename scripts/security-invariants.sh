@@ -57,7 +57,14 @@ BIN=$(find . -path '*/Build/Products/*' -name 'salon-ar' -type f 2>/dev/null | h
 if [ -z "$BIN" ]; then
   pending "no-networking-binary" "no build product found; trigger: first successful device build"
 else
-  syms=$(nm -u "$BIN" 2>/dev/null | grep -iE '_(URLSession|NWConnection|CFSocket|CFReadStream|NSURLConnection|getaddrinfo|connect|socket)($|[^A-Za-z0-9_])' || true)
+  # Symbol output differs by toolchain in TWO ways, both of which silently defeated an
+  # anchored pattern and made this check pass vacuously on Linux:
+  #   macOS  nm -u:  _socket
+  #   GNU    nm -u:  "                 U socket@GLIBC_2.2.5"   (type column, version suffix)
+  # Taking the last whitespace-separated field normalises both, so the match no longer
+  # depends on the toolchain's column layout.
+  syms=$(nm -u "$BIN" 2>/dev/null | awk '{print $NF}' \
+    | grep -iE '^_?(URLSession|NWConnection|CFSocket|CFReadStream|NSURLConnection|getaddrinfo|connect|socket|send|recv)(@|$)' || true)
   if [ -n "$syms" ]; then
     bad "no-networking-binary" "$BIN links networking symbols:
 $syms"

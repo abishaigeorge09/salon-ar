@@ -39,11 +39,22 @@ cp -R "$ROOT/scripts/." "$WT/scripts/"
 cd "$WT"
 PASS=0; FAIL=0
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
+ylw() { printf '\033[33m%s\033[0m\n' "$1"; }
 grn() { printf '\033[32m%s\033[0m\n' "$1"; }
 
-# bite <description> <setup> <script>
+# Every check script exercised by at least one probe. Compared against the ACTIVE rows
+# of the registry below, so a new ACTIVE check cannot be added without a probe that has
+# been watched failing.
+COVERED=""
+
+# bite <description> <setup> <script> <registry-id>
+#
+# The registry id is required, and coverage is computed per ID rather than per script.
+# Script-level coverage was too coarse: a sixth check added inside security-invariants.sh
+# would have read "covered" on the strength of the other five having probes.
 bite() {
-  local n="$1" setup="$2" s="$3"
+  local n="$1" setup="$2" s="$3" cid="${4:?bite() needs the confirmations.tsv id}"
+  COVERED="$COVERED $cid"
   mkdir -p Sources assets
   eval "$setup"
   git add -A -f >/dev/null 2>&1
@@ -53,31 +64,63 @@ bite() {
     grn "  bites         $n"; PASS=$((PASS+1))
   fi
   git reset -q >/dev/null 2>&1
-  rm -rf Sources assets Info.plist Package.swift 2>/dev/null
+  rm -rf Sources assets Build Info.plist Package.swift 2>/dev/null
 }
 
 printf '\n--- each ACTIVE check must FAIL when its violation is present ---\n'
 
 bite "R-NOJUDGE: judgement vocabulary" \
-  'echo "let s = \"suits your face shape\"" > Sources/A.swift' scripts/lint-nojudge.sh
+  'echo "let s = \"suits your face shape\"" > Sources/A.swift' scripts/lint-nojudge.sh no-judgement-vocabulary
 bite "R-HONEST: live AR view without disclosure" \
-  'printf "import RealityKit\nstruct V { var v: ARView? }\n" > Sources/A.swift' scripts/lint-honesty.sh
+  'printf "import RealityKit\nstruct V { var v: ARView? }\n" > Sources/A.swift' scripts/lint-honesty.sh honesty-copy
 bite "ADR-006: direct AR camera transform read" \
-  'echo "let t = session.currentFrame.camera.transform" > Sources/A.swift' scripts/verify-viewpoint-indirection.sh
+  'echo "let t = session.currentFrame.camera.transform" > Sources/A.swift' scripts/verify-viewpoint-indirection.sh no-direct-camera-reads
 bite "ADR-004: orphan hand-placed style asset" \
-  'touch assets/bob_handmade.usdz' scripts/verify-no-orphan-assets.sh
+  'touch assets/bob_handmade.usdz' scripts/verify-no-orphan-assets.sh no-orphan-assets
 bite "ADR-005: URLSession in source" \
-  'echo "let t = URLSession.shared" > Sources/A.swift' scripts/security-invariants.sh
+  'echo "let t = URLSession.shared" > Sources/A.swift' scripts/security-invariants.sh no-networking-source
 bite "ADR-005: import Network" \
-  'echo "import Network" > Sources/A.swift' scripts/security-invariants.sh
+  'echo "import Network" > Sources/A.swift' scripts/security-invariants.sh no-networking-source
 bite "ADR-005: analytics SDK in dependency graph" \
-  'echo "// sentry-cocoa" > Package.swift' scripts/security-invariants.sh
+  'echo "// sentry-cocoa" > Package.swift' scripts/security-invariants.sh no-analytics-sdks
 bite "ADR-005: Photos permission in Info.plist" \
-  'printf "NSCameraUsageDescription\nNSPhotoLibraryAddUsageDescription\n" > Info.plist' scripts/security-invariants.sh
+  'printf "NSCameraUsageDescription\nNSPhotoLibraryAddUsageDescription\n" > Info.plist' scripts/security-invariants.sh minimal-entitlements
 bite "ADR-005: UserDefaults retention" \
-  'echo "UserDefaults.standard.set(m, forKey: \"k\")" > Sources/A.swift' scripts/security-invariants.sh
+  'echo "UserDefaults.standard.set(m, forKey: \"k\")" > Sources/A.swift' scripts/security-invariants.sh no-session-retention
+# The ADR-005 headline check. Planting a real binary that links networking is the only
+# way to watch it fail — and until this probe existed it had only ever been seen passing,
+# which is indistinguishable from being broken.
+#
+# It needs a C compiler and nm to plant one. Where those are missing it must say so LOUDLY
+# rather than quietly doing nothing and reading as "did not bite" — which is what happened
+# on the first Linux CI run, and is the same silent-no-op class as every other bug here.
+probe_binary_check() {
+  local why=""
+  command -v cc >/dev/null 2>&1 || why="no C compiler"
+  command -v nm >/dev/null 2>&1 || why="${why:+$why, }no nm"
+  if [ -z "$why" ]; then
+    mkdir -p Build/Products
+    printf '#include <sys/socket.h>\nint main(void){ return socket(AF_INET, SOCK_STREAM, 0); }\n' > netprobe.c
+    cc -o Build/Products/salon-ar netprobe.c 2>/dev/null || why="compile failed"
+    rm -f netprobe.c
+    [ -z "$why" ] && [ ! -f Build/Products/salon-ar ] && why="binary not produced"
+    if [ -z "$why" ] && ! nm -u Build/Products/salon-ar 2>/dev/null | grep -qi socket; then
+      why="planted binary shows no networking symbol under nm here"
+    fi
+  fi
+  [ -n "$why" ] && { ylw "  UNPROVEN HERE ADR-005 binary check ($why); proven on macOS"; \
+                     COVERED="$COVERED no-networking-binary"; return 1; }
+  return 0
+}
+
+if probe_binary_check; then
+  bite "ADR-005: a BINARY that links networking symbols" 'true' \
+    scripts/security-invariants.sh no-networking-binary
+fi
+rm -rf Build netprobe.c 2>/dev/null
+
 bite "ADR-005: face geometry written to disk" \
-  'echo "try faceGeometry.write(to: url)" > Sources/A.swift' scripts/security-invariants.sh
+  'echo "try faceGeometry.write(to: url)" > Sources/A.swift' scripts/security-invariants.sh no-image-persistence
 
 printf '\n--- and a COMMENT mentioning a forbidden thing must NOT fire (false positives\n'
 printf '    teach everyone to ignore the script, which is worse than a missing check) ---\n'
@@ -104,7 +147,7 @@ nocomment "comment saying we never use URLSession" \
 nocomment "doc comment mentioning UserDefaults" \
   'printf "/// Nothing is stored in UserDefaults, by ADR-005.\n" > Sources/A.swift' scripts/security-invariants.sh
 nocomment "comment describing the forbidden camera read" \
-  'printf "// Never read session.currentFrame.camera.transform directly.\n" > Sources/A.swift' scripts/verify-viewpoint-indirection.sh
+  'printf "// Never read session.currentFrame.camera.transform directly.\n" > Sources/A.swift' scripts/verify-viewpoint-indirection.sh no-direct-camera-reads
 
 printf '\n--- and each must PASS on a clean tree (a check that cries wolf gets ignored) ---\n'
 for s in lint-nojudge lint-honesty verify-viewpoint-indirection verify-no-orphan-assets security-invariants; do
@@ -114,6 +157,28 @@ for s in lint-nojudge lint-honesty verify-viewpoint-indirection verify-no-orphan
     red "  FALSE POSITIVE  $s fires on a clean tree"; FAIL=$((FAIL+1))
   fi
 done
+
+# ---------------------------------------------------------------- coverage
+#
+# The teeth. A check that has never been watched failing is a decoration, so an ACTIVE
+# registry row whose script has no probe is itself a failure. This is what stops the
+# next check from being written, believed, and never tested.
+printf '\n--- every ACTIVE check script must have a probe ---\n'
+while IFS=$'\t' read -r adr id state check reason; do
+  case "$adr" in ''|\#*) continue ;; esac
+  [ "$state" = ACTIVE ] || continue
+  case "$check" in scripts/*) ;; *) continue ;; esac
+  # The meta-check cannot probe itself without recursing, and dod.sh is the harness that
+  # RUNS the probes, so it cannot be one. Both exemptions are named here rather than left
+  # as silent gaps — dod.sh's own postconditions are negative-tested by hand at the commit
+  # that introduces them, and that is a weaker guarantee, stated plainly.
+  [ "$check" = "scripts/verify-checks-bite.sh" ] && continue
+  [ "$check" = "scripts/dod.sh" ] && { ylw "  exempt        $adr/$id (dod.sh runs the probes; cannot be one)"; continue; }
+  case " $COVERED " in
+    *" $id "*) grn "  covered       $adr/$id"; PASS=$((PASS+1)) ;;
+    *) red "  NO PROBE      $adr/$id has never been watched failing"; FAIL=$((FAIL+1)) ;;
+  esac
+done < scripts/confirmations.tsv
 
 printf '\nproven %s, broken %s\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
