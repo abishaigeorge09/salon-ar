@@ -88,13 +88,36 @@ bite "ADR-005: Photos permission in Info.plist" \
 bite "ADR-005: UserDefaults retention" \
   'echo "UserDefaults.standard.set(m, forKey: \"k\")" > Sources/A.swift' scripts/security-invariants.sh no-session-retention
 # The ADR-005 headline check. Planting a real binary that links networking is the only
-# way to watch it fail — and until this probe existed, it had only ever been seen passing,
+# way to watch it fail — and until this probe existed it had only ever been seen passing,
 # which is indistinguishable from being broken.
-bite "ADR-005: a BINARY that links networking symbols" \
-  'mkdir -p Build/Products
-   printf "#include <sys/socket.h>\nint main(void){ return socket(AF_INET, SOCK_STREAM, 0); }\n" > /tmp/netprobe.c
-   cc -o Build/Products/salon-ar /tmp/netprobe.c 2>/dev/null' \
-  scripts/security-invariants.sh no-networking-binary
+#
+# It needs a C compiler and nm to plant one. Where those are missing it must say so LOUDLY
+# rather than quietly doing nothing and reading as "did not bite" — which is what happened
+# on the first Linux CI run, and is the same silent-no-op class as every other bug here.
+probe_binary_check() {
+  local why=""
+  command -v cc >/dev/null 2>&1 || why="no C compiler"
+  command -v nm >/dev/null 2>&1 || why="${why:+$why, }no nm"
+  if [ -z "$why" ]; then
+    mkdir -p Build/Products
+    printf '#include <sys/socket.h>\nint main(void){ return socket(AF_INET, SOCK_STREAM, 0); }\n' > netprobe.c
+    cc -o Build/Products/salon-ar netprobe.c 2>/dev/null || why="compile failed"
+    rm -f netprobe.c
+    [ -z "$why" ] && [ ! -f Build/Products/salon-ar ] && why="binary not produced"
+    if [ -z "$why" ] && ! nm -u Build/Products/salon-ar 2>/dev/null | grep -qi socket; then
+      why="planted binary shows no networking symbol under nm here"
+    fi
+  fi
+  [ -n "$why" ] && { ylw "  UNPROVEN HERE ADR-005 binary check ($why); proven on macOS"; \
+                     COVERED="$COVERED no-networking-binary"; return 1; }
+  return 0
+}
+
+if probe_binary_check; then
+  bite "ADR-005: a BINARY that links networking symbols" 'true' \
+    scripts/security-invariants.sh no-networking-binary
+fi
+rm -rf Build netprobe.c 2>/dev/null
 
 bite "ADR-005: face geometry written to disk" \
   'echo "try faceGeometry.write(to: url)" > Sources/A.swift' scripts/security-invariants.sh no-image-persistence
