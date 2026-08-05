@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // The domain components, styled from Tokens only. Each is written so it survives being
 // nearly empty, because a component that only holds together in the full case is not
@@ -311,18 +312,39 @@ struct IdleWarning: View {
 // MARK: - Unsupported device (R-DEGRADE)
 
 /// Never a crash, never a black camera. The stylist must be able to read this and know it
-/// is the iPad and not them.
+/// is the device and not them.
+///
+/// The device name is read at runtime rather than hardcoded. The first version said
+/// "This iPad cannot run the try-on" on every device, including iPhones — which defeats
+/// the requirement exactly: a stylist told the wrong thing about their own hardware
+/// learns nothing. Found by rendering it on a simulator, not by reading the code.
+/// Pure, so the copy is unit-testable. The bug it prevents shipped once already: the
+/// title said "iPad" on every device including iPhones, which defeats R-DEGRADE exactly
+/// — a stylist told the wrong thing about their own hardware learns nothing.
+enum UnsupportedCopy {
+    static func title(forPad isPad: Bool) -> String {
+        "This \(isPad ? "iPad" : "iPhone") cannot run the try-on"
+    }
+}
+
 struct UnsupportedDeviceView: View {
+    private var title: String {
+        UnsupportedCopy.title(forPad: UIDevice.current.userInterfaceIdiom == .pad)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.base) {
-            Tokens.Typography.title("This iPad cannot run the try-on")
+            Tokens.Typography.title(title)
                 .foregroundStyle(Tokens.Colour.ink)
-            Tokens.Typography.body("It needs an iPad from 2020 or later, or an iPhone XS or later. Nothing is wrong with your setup.")
+            Tokens.Typography.body(FaceCapability.requirementSentence)
                 .foregroundStyle(Tokens.Colour.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(Tokens.Space.loose)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // Capped, not full-bleed. On a 13-inch iPad — the primary salon device — an
+        // unconstrained card gives roughly a hundred characters per line, which nobody
+        // reads. Found by rendering on an iPad simulator, not by reading the code.
+        .frame(maxWidth: 460, alignment: .leading)
         .background(Tokens.Colour.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.large))
     }
 }

@@ -44,3 +44,19 @@ final class ViewpointProviderTests: XCTestCase {
         XCTAssertEqual(result, camera)
     }
 }
+
+/// R-DEGRADE. The unsupported-device copy must name the device the stylist is holding.
+/// It shipped once saying "iPad" on every device, which defeats the requirement: the
+/// screen exists so they know it is the hardware and not them.
+final class UnsupportedCopyTests: XCTestCase {
+    func testNamesTheActualDevice() {
+        XCTAssertEqual(UnsupportedCopy.title(forPad: true),  "This iPad cannot run the try-on")
+        XCTAssertEqual(UnsupportedCopy.title(forPad: false), "This iPhone cannot run the try-on")
+    }
+
+    func testTheTwoDiffer() {
+        // Guards the regression shape: a hardcoded string passes the first test if both
+        // branches return it, so assert they are actually different.
+        XCTAssertNotEqual(UnsupportedCopy.title(forPad: true), UnsupportedCopy.title(forPad: false))
+    }
+}
