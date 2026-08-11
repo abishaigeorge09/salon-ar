@@ -63,9 +63,17 @@ word_re() { printf '(^|[^A-Za-z0-9_])%s($|[^A-Za-z0-9_])' "$1"; }
 #
 # Skips whole-line comments (// /// * /*). Trailing comments on a code line still match,
 # which is the safe direction: it over-reports on a line that also contains real code.
+# Leading flags (-i, -l, -q ...) are collected before the pattern. An earlier version took
+# $1 as the pattern unconditionally, so `gg_code -i 'PAT'` silently used "-i" AS the
+# pattern and shoved the real one into the pathspec list — where it matched no files and
+# the check reported "no violation". Two checks were built on that.
 gg_code() {
+  local flags=()
+  while [ $# -gt 0 ]; do
+    case "$1" in -*) flags+=("$1"); shift ;; *) break ;; esac
+  done
   local pat="$1"; shift
-  gg "^(?!\\s*(///|//|\\*|/\\*)).*(?:${pat})" "$@"
+  gg "${flags[@]}" "^(?!\\s*(///|//|\\*|/\\*)).*(?:${pat})" "$@"
 }
 
 # Assert a postcondition after any step that GENERATES, COPIES or BUILDS something.

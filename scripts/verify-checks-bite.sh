@@ -64,17 +64,26 @@ bite() {
     grn "  bites         $n"; PASS=$((PASS+1))
   fi
   git reset -q >/dev/null 2>&1
-  rm -rf Sources assets Build Info.plist Package.swift 2>/dev/null
+  rm -rf Sources/Probe assets Build Info.plist Package.swift 2>/dev/null
+  git checkout -q HEAD -- Sources 2>/dev/null || true
 }
 
 printf '\n--- each ACTIVE check must FAIL when its violation is present ---\n'
 
 bite "R-NOJUDGE: judgement vocabulary" \
   'echo "let s = \"suits your face shape\"" > Sources/A.swift' scripts/lint-nojudge.sh no-judgement-vocabulary
-bite "R-HONEST: live AR view without disclosure" \
-  'printf "import RealityKit\nstruct V { var v: ARView? }\n" > Sources/A.swift' scripts/lint-honesty.sh honesty-copy
-bite "ADR-006: direct AR camera transform read" \
-  'echo "let t = session.currentFrame.camera.transform" > Sources/A.swift' scripts/verify-viewpoint-indirection.sh no-direct-camera-reads
+bite "R-HONEST: a live AR view with the disclosure REMOVED" \
+  'perl -pi -e "s/This adds length and volume[^\"]*//" Sources/Design/Components.swift' \
+  scripts/lint-honesty.sh honesty-copy
+bite "ADR-006: unmarked camera transform read" \
+  'mkdir -p Sources/Probe && echo "let t = frame.camera.transform" > Sources/Probe/A.swift' \
+  scripts/verify-viewpoint-indirection.sh no-direct-camera-reads
+
+# The subtler failure: not an unmarked read, but a SECOND marked seam. That is how the
+# decision actually erodes — somebody needs the transform, sees the marker, copies it.
+bite "ADR-006: a second marked seam" \
+  'mkdir -p Sources/Probe && echo "let t = frame.camera.transform  // ADR-006-seam" > Sources/Probe/A.swift' \
+  scripts/verify-viewpoint-indirection.sh no-direct-camera-reads
 bite "ADR-004: orphan hand-placed style asset" \
   'touch assets/bob_handmade.usdz' scripts/verify-no-orphan-assets.sh no-orphan-assets
 bite "ADR-005: URLSession in source" \
@@ -87,37 +96,61 @@ bite "ADR-005: Photos permission in Info.plist" \
   'printf "NSCameraUsageDescription\nNSPhotoLibraryAddUsageDescription\n" > Info.plist' scripts/security-invariants.sh minimal-entitlements
 bite "ADR-005: UserDefaults retention" \
   'echo "UserDefaults.standard.set(m, forKey: \"k\")" > Sources/A.swift' scripts/security-invariants.sh no-session-retention
-# The ADR-005 headline check. Planting a real binary that links networking is the only
-# way to watch it fail — and until this probe existed it had only ever been seen passing,
-# which is indistinguishable from being broken.
+# The ADR-005 headline check, and the hardest probe to write honestly.
 #
-# It needs a C compiler and nm to plant one. Where those are missing it must say so LOUDLY
-# rather than quietly doing nothing and reading as "did not bite" — which is what happened
-# on the first Linux CI run, and is the same silent-no-op class as every other bug here.
+# It must plant a REAL .app bundle, because the check scans every Mach-O in a bundle after
+# discovering that Xcode 26 hides the code in a debug dylib behind a thin launcher stub.
+# It must also carry enough symbols to clear the check's stub floor, or the check fails for
+# the wrong reason and the probe proves the wrong thing.
+#
+# So: copy a real built bundle, drop a networking binary inside it, and assert the check
+# fails specifically ON NETWORKING rather than on the floor. Asserting the reason, not just
+# the exit code, is what stops this probe from going green for an unrelated failure.
 probe_binary_check() {
   local why=""
   command -v cc >/dev/null 2>&1 || why="no C compiler"
   command -v nm >/dev/null 2>&1 || why="${why:+$why, }no nm"
+  local real
+  real=$(find /tmp "$HOME/Library/Developer/Xcode/DerivedData" -name 'salon-ar.app' -type d 2>/dev/null | head -1)
+  [ -z "$real" ] && why="${why:+$why, }no built .app to base the probe on"
+
   if [ -z "$why" ]; then
-    mkdir -p Build/Products
-    printf '#include <sys/socket.h>\nint main(void){ return socket(AF_INET, SOCK_STREAM, 0); }\n' > netprobe.c
-    cc -o Build/Products/salon-ar netprobe.c 2>/dev/null || why="compile failed"
-    rm -f netprobe.c
-    [ -z "$why" ] && [ ! -f Build/Products/salon-ar ] && why="binary not produced"
-    if [ -z "$why" ] && ! nm -u Build/Products/salon-ar 2>/dev/null | grep -qi socket; then
-      why="planted binary shows no networking symbol under nm here"
+    rm -rf Probe.app 2>/dev/null
+    cp -R "$real" ./Probe.app 2>/dev/null || why="could not copy a bundle"
+    if [ -z "$why" ]; then
+      mv Probe.app "salon-ar.app" 2>/dev/null
+      printf '#include <sys/socket.h>\nint main(void){ return socket(AF_INET, SOCK_STREAM, 0); }\n' > np.c
+      cc -o "salon-ar.app/netprobe" np.c 2>/dev/null || why="compile failed"
+      rm -f np.c
     fi
   fi
-  [ -n "$why" ] && { ylw "  UNPROVEN HERE ADR-005 binary check ($why); proven on macOS"; \
-                     COVERED="$COVERED no-networking-binary"; return 1; }
+
+  if [ -n "$why" ]; then
+    ylw "  UNPROVEN HERE ADR-005 binary check ($why); proven where the app builds"
+    COVERED="$COVERED no-networking-binary"
+    rm -rf salon-ar.app np.c 2>/dev/null
+    return 1
+  fi
   return 0
 }
 
 if probe_binary_check; then
-  bite "ADR-005: a BINARY that links networking symbols" 'true' \
-    scripts/security-invariants.sh no-networking-binary
+  git add -A -f >/dev/null 2>&1
+  out=$(./scripts/security-invariants.sh 2>&1)
+  if printf '%s' "$out" | grep -q 'networking symbols linked'; then
+    grn "  bites         ADR-005: a bundle containing a binary that links networking"
+    PASS=$((PASS+1))
+  elif printf '%s' "$out" | grep -q 'stub-sized'; then
+    red "  WRONG REASON  ADR-005 binary check failed on the stub floor, not on networking"
+    FAIL=$((FAIL+1))
+  else
+    red "  DID NOT BITE  ADR-005: a bundle containing a binary that links networking"
+    FAIL=$((FAIL+1))
+  fi
+  COVERED="$COVERED no-networking-binary"
+  git reset -q >/dev/null 2>&1
+  rm -rf salon-ar.app 2>/dev/null
 fi
-rm -rf Build netprobe.c 2>/dev/null
 
 bite "ADR-005: face geometry written to disk" \
   'echo "try faceGeometry.write(to: url)" > Sources/A.swift' scripts/security-invariants.sh no-image-persistence

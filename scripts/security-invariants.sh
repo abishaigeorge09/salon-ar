@@ -49,27 +49,47 @@ else
 fi
 
 # ==================================================== 2. networking, binary level
-# The check that actually bites. nm over the built product.
+# The check that actually bites: a binary in which uploading is not expressible.
+#
+# It must scan EVERY Mach-O in the .app, not just the executable. Xcode 26 emits a thin
+# launcher stub and puts the real code in salon-ar.debug.dylib, so an earlier version of
+# this check inspected 31 symbols of stub, found no networking, and reported PASS. It
+# would have passed on any app ever built. The actual code carries 611 symbols.
+#
+# Hence the symbol floor below: a check that inspected almost nothing must say so rather
+# than call it a pass. That is the general defence against this whole class.
 
-BIN=$(find . -path '*/Build/Products/*' -name 'salon-ar' -type f 2>/dev/null | head -1)
-[ -z "$BIN" ] && BIN=$(find ~/Library/Developer/Xcode/DerivedData -name 'salon-ar' -type f -path '*Products*' 2>/dev/null | head -1)
+# Search order matters. An earlier version looked in /tmp first and therefore inspected
+# whichever app happened to be lying around rather than the one built from this tree —
+# which meant the bite probe's planted bundle was ignored and the check reported PASS.
+# The working tree wins; DerivedData is the fallback.
+APP=$(find . -name 'salon-ar.app' -type d 2>/dev/null | head -1)
+[ -z "$APP" ] && APP=$(find /tmp "$HOME/Library/Developer/Xcode/DerivedData" -name 'salon-ar.app' -type d 2>/dev/null | head -1)
 
-if [ -z "$BIN" ]; then
-  pending "no-networking-binary" "no build product found; trigger: first successful device build"
+if [ -z "$APP" ]; then
+  pending "no-networking-binary" "no built .app found; trigger: first successful build"
 else
-  # Symbol output differs by toolchain in TWO ways, both of which silently defeated an
-  # anchored pattern and made this check pass vacuously on Linux:
-  #   macOS  nm -u:  _socket
-  #   GNU    nm -u:  "                 U socket@GLIBC_2.2.5"   (type column, version suffix)
-  # Taking the last whitespace-separated field normalises both, so the match no longer
-  # depends on the toolchain's column layout.
-  syms=$(nm -u "$BIN" 2>/dev/null | awk '{print $NF}' \
-    | grep -iE '^_?(URLSession|NWConnection|CFSocket|CFReadStream|NSURLConnection|getaddrinfo|connect|socket|send|recv)(@|$)' || true)
-  if [ -n "$syms" ]; then
-    bad "no-networking-binary" "$BIN links networking symbols:
-$syms"
+  MACHO=$(find "$APP" -type f -perm +111 2>/dev/null | while read -r f; do
+            file "$f" 2>/dev/null | grep -q Mach-O && printf '%s\n' "$f"; done)
+  total=0; syms=""
+  for m in $MACHO; do
+    n=$(nm -u "$m" 2>/dev/null | wc -l | tr -d ' ')
+    total=$((total + n))
+    hit=$(nm -u "$m" 2>/dev/null | awk '{print $NF}' \
+      | grep -iE '^_?(URLSession|NWConnection|CFSocket|CFReadStream|NSURLConnection|getaddrinfo|connect|socket|send|recv)(@|$)' || true)
+    [ -n "$hit" ] && syms="$syms
+$(basename "$m"): $hit"
+  done
+
+  # Sanity floor. A launcher stub is ~30 symbols; a real app is hundreds. Anything below
+  # this means we inspected a stub and learned nothing, which is a FAILURE and not a pass.
+  if [ "$total" -lt 200 ]; then
+    bad "no-networking-binary" "only $total symbols across $(printf '%s' "$MACHO" | wc -l | tr -d ' ') Mach-O files in $APP.
+That is stub-sized. The check inspected almost nothing, so it proves nothing."
+  elif [ -n "$syms" ]; then
+    bad "no-networking-binary" "networking symbols linked:$syms"
   else
-    ok "no-networking-binary"
+    ok "no-networking-binary ($total symbols across $(printf '%s\n' "$MACHO" | grep -c . ) Mach-O files)"
   fi
 fi
 

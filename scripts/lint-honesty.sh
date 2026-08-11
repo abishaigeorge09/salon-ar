@@ -15,12 +15,17 @@ if ! git ls-files -- ':(glob)**/*.swift' 2>/dev/null | grep -q .; then
   exit 0
 fi
 
-# Once a live camera view exists, the disclosure must exist with it.
-if git grep -lqP 'ARView|ARSCNView|RealityView' -- ':(glob)**/*.swift' 2>/dev/null; then
-  if ! git grep -qiP 'adds length|cannot remove|does not remove' -- ':(glob)**/*.swift' ':(glob)**/*.strings' 2>/dev/null; then
-    printf '\033[31mR-HONEST violated: a live AR view exists with no additive-only disclosure.\033[0m\n'
-    printf 'Live mode adds hair and cannot remove it. Say so in the UI.\n'
+# Once a live camera view exists, the disclosure must exist with it — AS UI COPY, not as
+# a comment about UI copy. An earlier version matched the doc comment "Live mode adds hair
+# and cannot remove it", so deleting the actual on-screen sentence left the check green.
+# The requirement is what the customer reads, so the check must look at string literals.
+if gg_code 'ARView|ARSCNView|RealityView' -- ':(glob)Sources/**/*.swift' >/dev/null 2>&1; then
+  if ! gg_code -i '"[^"]*(adds length|cannot remove|does not remove|cannot show it shorter)' \
+       -- ':(glob)Sources/**/*.swift' ':(glob)**/*.strings' >/dev/null 2>&1; then
+    printf '\033[31mR-HONEST violated: a live AR view exists with no additive-only disclosure\n'
+    printf 'in any user-facing string.\033[0m\n'
+    printf 'Live mode adds hair and cannot remove it. Say so on screen, not in a comment.\n'
     exit 1
   fi
 fi
-printf 'honesty disclosure present or not yet required\n'
+printf 'honesty disclosure present in UI copy, or not yet required\n'
